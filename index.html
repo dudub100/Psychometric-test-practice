@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Psychomaster AI - Auto Detect</title>
+    <title>Psychomaster AI - Pro Version</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;700&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
     <div id="app" class="max-w-2xl mx-auto p-6">
         <header class="text-center mb-8">
             <h1 class="text-4xl font-black text-indigo-700">Psychomaster <span class="text-indigo-400">AI</span></h1>
-            <p class="text-gray-500">מחולל שאלות אוטומטי (Auto-Detect Model)</p>
+            <p class="text-gray-500">מחולל שאלות פסיכומטרי אוטומטי (Auto-Fallback)</p>
         </header>
 
         <div id="setup-card" class="bg-white shadow-xl rounded-2xl p-8 border border-gray-100">
@@ -55,7 +55,7 @@
         <div id="question-card" class="hidden bg-white shadow-2xl rounded-2xl p-8 border-t-4 border-indigo-500">
             <div class="flex justify-between items-center mb-4">
                 <div id="q-timer" class="text-left text-red-500 font-mono font-bold text-lg">00:00</div>
-                <div id="used-model" class="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded"></div>
+                <div id="used-model" class="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded font-bold"></div>
             </div>
             <div id="q-text" class="text-xl font-bold mb-8 leading-relaxed"></div>
             <div id="options" class="space-y-3"></div>
@@ -90,61 +90,84 @@
             document.getElementById('loading').classList.remove('hidden');
 
             try {
-                // שלב 1: בדיקה איזה מודל פתוח למפתח שלך
-                document.getElementById('loading-text').innerText = "מוצא את המודל החכם ביותר שזמין לך...";
+                document.getElementById('loading-text').innerText = "מוצא את המודלים העדכניים ביותר שזמינים לך...";
                 
                 const modelsReq = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
                 const modelsData = await modelsReq.json();
                 
                 if (modelsData.error) {
-                    throw new Error("המפתח לא תקין או שאין לו הרשאת גישה: " + modelsData.error.message);
+                    throw new Error(modelsData.error.message);
                 }
 
                 // סינון מודלים שיודעים לייצר טקסט
-                const textModels = modelsData.models.filter(m => 
-                    m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent")
-                );
+                const textModels = modelsData.models
+                    .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
+                    .map(m => m.name.replace("models/", ""));
 
                 if (textModels.length === 0) {
-                    throw new Error("המפתח שלך לא מורשה לאף מודל שמייצר טקסט.");
+                    throw new Error("לא נמצאו מודלים זמינים למפתח זה.");
                 }
 
-                // בחירת המודל הטוב ביותר האפשרי (לפי סדר עדיפויות)
-                let bestModel = textModels[0].name.replace("models/", "");
-                const preferences = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro", "gemini-1.0-pro"];
-                
-                for (const pref of preferences) {
-                    if (textModels.some(m => m.name === `models/${pref}`)) {
-                        bestModel = pref;
-                        break;
+                // העדפות מודלים מעודכנות - מהחדש והחזק ביותר לישן
+                const modernPreferences = [
+                    "gemini-3.0-pro", "gemini-3.0-flash", 
+                    "gemini-2.5-pro", "gemini-2.5-flash", 
+                    "gemini-pro", "gemini-1.5-pro", "gemini-1.5-flash"
+                ];
+
+                // מסדרים את המודלים שגוגל החזירה לנו לפי סדר העדיפויות שלנו
+                let orderedModelsToTry = [];
+                for (const pref of modernPreferences) {
+                    if (textModels.includes(pref)) orderedModelsToTry.push(pref);
+                }
+                // מוסיפים את שאר המודלים שזמינים למקרה שההעדפות שלנו נכשלו
+                textModels.forEach(m => {
+                    if (!orderedModelsToTry.includes(m)) orderedModelsToTry.push(m);
+                });
+
+                const genAI = new GoogleGenerativeAI(apiKey);
+                let successfulResponse = null;
+                let finalModelUsed = "";
+
+                // מנגנון הגיבוי: מנסים מודל אחר מודל עד שמצליחים!
+                for (const modelName of orderedModelsToTry) {
+                    try {
+                        document.getElementById('loading-text').innerText = `מנסה לייצר שאלה עם מודל ${modelName}...`;
+                        const model = genAI.getGenerativeModel({ model: modelName });
+                        
+                        const prompt = `אתה כותב שאלות פסיכומטרי ברמה של ציון 750-800 עבור המרכז הארצי לבחינות ולהערכה.
+                        צור שאלה אחת בנושא: ${category}.
+                        השאלה חייבת להיות קשה, עם מסיחים מבלבלים, והסבר לוגי מעמיק למה התשובה הנכונה היא הנכונה ולמה המסיחים שגויים.
+                        החזר אך ורק פורמט JSON תקין כזה ללא שום טקסט נוסף וללא פורמט Markdown:
+                        {"question": "טקסט השאלה", "options": ["1","2","3","4"], "correct": 0, "explanation": "הסבר"}`;
+
+                        const result = await model.generateContent(prompt);
+                        successfulResponse = await result.response;
+                        finalModelUsed = modelName;
+                        break; // הצלחנו! יוצאים מהלולאה
+                    } catch (e) {
+                        console.warn(`Model ${modelName} failed or deprecated. Trying next...`, e);
+                        // ממשיכים למודל הבא בלולאה
                     }
                 }
 
-                document.getElementById('loading-text').innerText = `משתמש במודל ${bestModel} כדי לכתוב שאלה קשה...`;
-                document.getElementById('used-model').innerText = `Powered by: ${bestModel}`;
+                if (!successfulResponse) {
+                    throw new Error("כל המודלים שניסינו נכשלו או חסומים על ידי גוגל.");
+                }
 
-                // שלב 2: ייצור השאלה עם המודל שנמצא
-                const genAI = new GoogleGenerativeAI(apiKey);
-                const model = genAI.getGenerativeModel({ model: bestModel });
-
-                const prompt = `אתה כותב שאלות פסיכומטרי ברמה של ציון 750-800 עבור המרכז הארצי לבחינות ולהערכה.
-                צור שאלה אחת בנושא: ${category}.
-                השאלה חייבת להיות קשה, עם מסיחים מבלבלים, והסבר לוגי מעמיק למה התשובה הנכונה היא הנכונה ולמה המסיחים שגויים.
-                החזר אך ורק פורמט JSON תקין כזה ללא שום טקסט נוסף וללא פורמט Markdown (ללא סימון \`\`\`json):
-                {"question": "טקסט השאלה", "options": ["1","2","3","4"], "correct": 0, "explanation": "הסבר"}`;
-
-                const result = await model.generateContent(prompt);
-                const response = await result.response;
-                let responseText = response.text().trim();
+                let responseText = successfulResponse.text().trim();
                 
+                // ניקוי תגיות Markdown במקרה שהמודל מחזיר אותן
                 if (responseText.startsWith("```json")) responseText = responseText.replace(/```json\n?/, "").replace(/```$/, "");
                 else if (responseText.startsWith("```")) responseText = responseText.replace(/```\n?/, "").replace(/```$/, "");
 
                 const data = JSON.parse(responseText);
+                
+                document.getElementById('used-model').innerText = `Powered by: ${finalModelUsed}`;
                 displayQuestion(data);
                 
             } catch (error) {
-                alert("שגיאה: " + error.message);
+                alert("שגיאה סופית: " + error.message);
                 location.reload();
             }
         };
