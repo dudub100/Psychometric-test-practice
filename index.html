@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Psychomaster AI - Powered by Gemini</title>
+    <title>Psychomaster AI - Powered by Gemini Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;700&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
     <div id="app" class="max-w-2xl mx-auto p-6">
         <header class="text-center mb-8">
             <h1 class="text-4xl font-black text-indigo-700">Psychomaster <span class="text-indigo-400">AI</span></h1>
-            <p class="text-gray-500">מחולל שאלות פסיכומטרי חכם</p>
+            <p class="text-gray-500">מחולל שאלות פסיכומטרי מבוסס Gemini 1.5 Pro</p>
         </header>
 
         <div id="setup-card" class="bg-white shadow-xl rounded-2xl p-8 border border-gray-100">
@@ -81,7 +81,7 @@
             const apiKey = document.getElementById('api-key').value.trim();
             if (!apiKey) return alert("אנא הכנס API Key");
             
-            // שמירת המפתח לשימוש עתידי (נשמר רק אצלך בדפדפן)
+            // שמירת המפתח לשימוש עתידי
             localStorage.setItem('gemini_api_key', apiKey);
 
             const category = document.getElementById('category').value;
@@ -91,21 +91,23 @@
 
             try {
                 const genAI = new GoogleGenerativeAI(apiKey);
+                // התיקון בוצע כאן: שימוש במודל gemini-1.5-pro
                 const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
                 const prompt = `אתה כותב שאלות פסיכומטרי ברמה של ציון 750-800 עבור המרכז הארצי לבחינות ולהערכה.
                 צור שאלה אחת בנושא: ${category}.
                 השאלה חייבת להיות קשה, עם מסיחים מבלבלים, והסבר לוגי מעמיק למה התשובה הנכונה היא הנכונה ולמה המסיחים שגויים.
                 החזר אך ורק פורמט JSON תקין כזה ללא שום טקסט נוסף וללא פורמט Markdown (ללא סימון \`\`\`json):
-                {"question": "טקסט", "options": ["1","2","3","4"], "correct": 0, "explanation": "הסבר"}`;
+                {"question": "טקסט השאלה", "options": ["1","2","3","4"], "correct": 0, "explanation": "הסבר"}`;
 
                 const result = await model.generateContent(prompt);
                 const response = await result.response;
                 let responseText = response.text().trim();
                 
-                // ניקוי עטיפות markdown במקרה והמודל הוסיף אותן למרות הבקשה
                 if (responseText.startsWith("```json")) {
                     responseText = responseText.replace(/```json\n?/, "").replace(/```$/, "");
+                } else if (responseText.startsWith("```")) {
+                    responseText = responseText.replace(/```\n?/, "").replace(/```$/, "");
                 }
 
                 const data = JSON.parse(responseText);
@@ -119,7 +121,7 @@
         function displayQuestion(data) {
             document.getElementById('loading').classList.add('hidden');
             document.getElementById('question-card').classList.remove('hidden');
-            document.getElementById('q-text').innerText = data.question;
+            document.getElementById('q-text').innerHTML = data.question.replace(/\n/g, '<br>');
             
             const optionsDiv = document.getElementById('options');
             optionsDiv.innerHTML = '';
@@ -130,11 +132,10 @@
                 btn.innerText = `(${i+1}) ${opt}`;
                 btn.onclick = () => {
                     clearInterval(timerInterval);
-                    // נטרול הכפתורים
                     document.querySelectorAll('#options button').forEach(b => b.disabled = true);
                     
                     const isCorrect = (i === data.correct);
-                    saveResult(isCorrect); // שמירת התוצאה לגרף
+                    saveResult(isCorrect);
                     
                     const feedback = document.getElementById('feedback');
                     feedback.classList.remove('hidden');
@@ -164,8 +165,6 @@
             }, 1000);
         }
 
-        // --- פונקציות ניהול נתונים וגרף ---
-
         function saveResult(isCorrect) {
             let history = JSON.parse(localStorage.getItem('psycho_history') || '[]');
             history.push({
@@ -178,7 +177,7 @@
         window.clearHistory = () => {
             if(confirm("האם אתה בטוח שברצונך לאפס את כל היסטוריית התרגול שלך?")) {
                 localStorage.removeItem('psycho_history');
-                renderChart();
+                location.reload();
             }
         };
 
@@ -193,7 +192,6 @@
             document.getElementById('stats-container').classList.remove('hidden');
             document.getElementById('total-answered').innerText = history.length;
 
-            // חישוב אחוזי הצלחה מצטברים (Rolling Average)
             let cumulativeRates = [];
             let correctCount = 0;
             
@@ -203,9 +201,7 @@
                 cumulativeRates.push(rate);
             });
 
-            // יצירת תוויות ציר X (שאלה 1, שאלה 2...)
             const labels = history.map((_, i) => `שאלה ${i + 1}`);
-
             const ctx = document.getElementById('progressChart').getContext('2d');
             
             if (chartInstance) {
@@ -249,3 +245,4 @@
     </script>
 </body>
 </html>
+
