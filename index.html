@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Psychomaster AI - Powered by Gemini Pro</title>
+    <title>Psychomaster AI - Auto Detect</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;700&display=swap" rel="stylesheet">
@@ -18,7 +18,7 @@
     <div id="app" class="max-w-2xl mx-auto p-6">
         <header class="text-center mb-8">
             <h1 class="text-4xl font-black text-indigo-700">Psychomaster <span class="text-indigo-400">AI</span></h1>
-            <p class="text-gray-500">מחולל שאלות פסיכומטרי מבוסס Gemini 1.5 Pro</p>
+            <p class="text-gray-500">מחולל שאלות אוטומטי (Auto-Detect Model)</p>
         </header>
 
         <div id="setup-card" class="bg-white shadow-xl rounded-2xl p-8 border border-gray-100">
@@ -27,7 +27,7 @@
                 <canvas id="progressChart" height="100"></canvas>
                 <div class="text-center mt-2 text-sm text-gray-500">
                     סה"כ שאלות שנענו: <span id="total-answered" class="font-bold">0</span> | 
-                    כפתור <button onclick="clearHistory()" class="text-red-500 hover:underline">איפוס נתונים</button>
+                    <button onclick="clearHistory()" class="text-red-500 hover:underline">איפוס נתונים</button>
                 </div>
             </div>
 
@@ -49,11 +49,14 @@
 
         <div id="loading" class="hidden text-center py-20">
             <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4 mx-auto"></div>
-            <p class="text-indigo-600 font-bold animate-pulse">Gemini מנתח ומייצר שאלה מאתגרת...</p>
+            <p id="loading-text" class="text-indigo-600 font-bold animate-pulse">מתחבר לשרתי גוגל ובודק מודלים זמינים...</p>
         </div>
 
         <div id="question-card" class="hidden bg-white shadow-2xl rounded-2xl p-8 border-t-4 border-indigo-500">
-            <div id="q-timer" class="text-left text-red-500 font-mono font-bold mb-2 text-lg">00:00</div>
+            <div class="flex justify-between items-center mb-4">
+                <div id="q-timer" class="text-left text-red-500 font-mono font-bold text-lg">00:00</div>
+                <div id="used-model" class="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded"></div>
+            </div>
             <div id="q-text" class="text-xl font-bold mb-8 leading-relaxed"></div>
             <div id="options" class="space-y-3"></div>
             <div id="feedback" class="hidden mt-6 p-4 rounded-lg"></div>
@@ -70,7 +73,6 @@
         let seconds = 0;
         let chartInstance = null;
 
-        // טעינת מפתח API שמור אם יש
         document.addEventListener("DOMContentLoaded", () => {
             const savedKey = localStorage.getItem('gemini_api_key');
             if (savedKey) document.getElementById('api-key').value = savedKey;
@@ -81,18 +83,49 @@
             const apiKey = document.getElementById('api-key').value.trim();
             if (!apiKey) return alert("אנא הכנס API Key");
             
-            // שמירת המפתח לשימוש עתידי
             localStorage.setItem('gemini_api_key', apiKey);
-
             const category = document.getElementById('category').value;
             
             document.getElementById('setup-card').classList.add('hidden');
             document.getElementById('loading').classList.remove('hidden');
 
             try {
+                // שלב 1: בדיקה איזה מודל פתוח למפתח שלך
+                document.getElementById('loading-text').innerText = "מוצא את המודל החכם ביותר שזמין לך...";
+                
+                const modelsReq = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+                const modelsData = await modelsReq.json();
+                
+                if (modelsData.error) {
+                    throw new Error("המפתח לא תקין או שאין לו הרשאת גישה: " + modelsData.error.message);
+                }
+
+                // סינון מודלים שיודעים לייצר טקסט
+                const textModels = modelsData.models.filter(m => 
+                    m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent")
+                );
+
+                if (textModels.length === 0) {
+                    throw new Error("המפתח שלך לא מורשה לאף מודל שמייצר טקסט.");
+                }
+
+                // בחירת המודל הטוב ביותר האפשרי (לפי סדר עדיפויות)
+                let bestModel = textModels[0].name.replace("models/", "");
+                const preferences = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro", "gemini-1.0-pro"];
+                
+                for (const pref of preferences) {
+                    if (textModels.some(m => m.name === `models/${pref}`)) {
+                        bestModel = pref;
+                        break;
+                    }
+                }
+
+                document.getElementById('loading-text').innerText = `משתמש במודל ${bestModel} כדי לכתוב שאלה קשה...`;
+                document.getElementById('used-model').innerText = `Powered by: ${bestModel}`;
+
+                // שלב 2: ייצור השאלה עם המודל שנמצא
                 const genAI = new GoogleGenerativeAI(apiKey);
-                // התיקון בוצע כאן: שימוש במודל gemini-1.5-pro
-                const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+                const model = genAI.getGenerativeModel({ model: bestModel });
 
                 const prompt = `אתה כותב שאלות פסיכומטרי ברמה של ציון 750-800 עבור המרכז הארצי לבחינות ולהערכה.
                 צור שאלה אחת בנושא: ${category}.
@@ -104,16 +137,14 @@
                 const response = await result.response;
                 let responseText = response.text().trim();
                 
-                if (responseText.startsWith("```json")) {
-                    responseText = responseText.replace(/```json\n?/, "").replace(/```$/, "");
-                } else if (responseText.startsWith("```")) {
-                    responseText = responseText.replace(/```\n?/, "").replace(/```$/, "");
-                }
+                if (responseText.startsWith("```json")) responseText = responseText.replace(/```json\n?/, "").replace(/```$/, "");
+                else if (responseText.startsWith("```")) responseText = responseText.replace(/```\n?/, "").replace(/```$/, "");
 
                 const data = JSON.parse(responseText);
                 displayQuestion(data);
+                
             } catch (error) {
-                alert("שגיאה בחיבור ל-AI: " + error.message + "\nייתכן שה-API Key שגוי או שיש בעיית רשת.");
+                alert("שגיאה: " + error.message);
                 location.reload();
             }
         };
@@ -167,15 +198,12 @@
 
         function saveResult(isCorrect) {
             let history = JSON.parse(localStorage.getItem('psycho_history') || '[]');
-            history.push({
-                correct: isCorrect,
-                timestamp: new Date().toISOString()
-            });
+            history.push({ correct: isCorrect, timestamp: new Date().toISOString() });
             localStorage.setItem('psycho_history', JSON.stringify(history));
         }
 
         window.clearHistory = () => {
-            if(confirm("האם אתה בטוח שברצונך לאפס את כל היסטוריית התרגול שלך?")) {
+            if(confirm("לאפס נתונים?")) {
                 localStorage.removeItem('psycho_history');
                 location.reload();
             }
@@ -183,66 +211,35 @@
 
         function renderChart() {
             let history = JSON.parse(localStorage.getItem('psycho_history') || '[]');
-            
-            if (history.length === 0) {
-                document.getElementById('stats-container').classList.add('hidden');
-                return;
-            }
+            if (history.length === 0) return document.getElementById('stats-container').classList.add('hidden');
 
             document.getElementById('stats-container').classList.remove('hidden');
             document.getElementById('total-answered').innerText = history.length;
 
             let cumulativeRates = [];
             let correctCount = 0;
-            
             history.forEach((attempt, index) => {
                 if (attempt.correct) correctCount++;
-                let rate = Math.round((correctCount / (index + 1)) * 100);
-                cumulativeRates.push(rate);
+                cumulativeRates.push(Math.round((correctCount / (index + 1)) * 100));
             });
 
             const labels = history.map((_, i) => `שאלה ${i + 1}`);
             const ctx = document.getElementById('progressChart').getContext('2d');
-            
-            if (chartInstance) {
-                chartInstance.destroy();
-            }
+            if (chartInstance) chartInstance.destroy();
 
             chartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'אחוז הצלחה מצטבר (%)',
-                        data: cumulativeRates,
-                        borderColor: '#4f46e5',
-                        backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                        borderWidth: 3,
-                        tension: 0.3,
-                        fill: true,
-                        pointBackgroundColor: '#fff',
-                        pointBorderColor: '#4f46e5',
-                        pointRadius: 4
+                        label: 'אחוז הצלחה', data: cumulativeRates,
+                        borderColor: '#4f46e5', backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                        borderWidth: 3, tension: 0.3, fill: true, pointRadius: 4
                     }]
                 },
-                options: {
-                    responsive: true,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            max: 100,
-                            ticks: {
-                                callback: function(value) { return value + "%" }
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false }
-                    }
-                }
+                options: { responsive: true, scales: { y: { beginAtZero: true, max: 100 } } }
             });
         }
     </script>
 </body>
 </html>
-
