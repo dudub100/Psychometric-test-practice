@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Psychomaster AI - Zero Latency</title>
+    <title>Psychomaster AI - Ultimate Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;700&display=swap" rel="stylesheet">
@@ -17,8 +17,8 @@
 
     <div id="app" class="max-w-2xl mx-auto p-6">
         <header class="text-center mb-8">
-            <h1 class="text-4xl font-black text-indigo-700">Psychomaster <span class="text-green-500">Pro</span></h1>
-            <p class="text-gray-500">תרגול ללא המתנה (מצב טעינה מראש - 2.5 Flash)</p>
+            <h1 class="text-4xl font-black text-indigo-700">Psychomaster <span class="text-purple-600">Ultimate</span></h1>
+            <p class="text-gray-500">Auto-Detect + טעינה מראש</p>
         </header>
 
         <div id="setup-card" class="bg-white shadow-xl rounded-2xl p-8 border border-gray-100">
@@ -48,13 +48,16 @@
 
         <div id="loading" class="hidden text-center py-20">
             <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4 mx-auto"></div>
-            <p class="text-indigo-600 font-bold animate-pulse">מכין את חבילת השאלות הראשונה (זה ייקח כמה שניות)...</p>
+            <p id="loading-text" class="text-indigo-600 font-bold animate-pulse">מתחיל תהליך...</p>
         </div>
 
         <div id="question-card" class="hidden bg-white shadow-2xl rounded-2xl p-8 border-t-4 border-indigo-500">
             <div class="flex justify-between items-center mb-4">
                 <div id="q-timer" class="text-left text-red-500 font-mono font-bold text-lg">00:00</div>
-                <div id="buffer-status" class="text-xs text-gray-400">שאלות ממתינות: <span id="queue-count" class="font-bold text-indigo-600">0</span></div>
+                <div class="flex flex-col items-end">
+                    <div id="used-model" class="text-xs font-bold text-purple-700 bg-purple-100 px-2 py-1 rounded mb-1"></div>
+                    <div class="text-xs text-gray-400">שאלות במחסנית: <span id="queue-count" class="font-bold text-indigo-600">0</span></div>
+                </div>
             </div>
             <div id="q-text" class="text-xl font-bold mb-8 leading-relaxed"></div>
             <div id="options" class="space-y-3"></div>
@@ -75,6 +78,9 @@
         let questionsQueue = []; 
         let isFetching = false;  
         let currentCategory = "";
+        
+        // משתנה גלובלי שישמור את המודל שנבחר לאורך כל האימון
+        let activeModelName = "gemini-1.5-flash"; 
 
         document.addEventListener("DOMContentLoaded", () => {
             const savedKey = localStorage.getItem('gemini_api_key');
@@ -93,6 +99,32 @@
             document.getElementById('setup-card').classList.add('hidden');
             document.getElementById('loading').classList.remove('hidden');
 
+            // שלב 1: זיהוי אוטומטי של המודל הטוב ביותר (מתבצע פעם אחת בלבד!)
+            try {
+                document.getElementById('loading-text').innerText = "בודק הרשאות ובוחר את המודל החכם ביותר...";
+                const modelsReq = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+                const modelsData = await modelsReq.json();
+                
+                if (!modelsData.error) {
+                    const textModels = modelsData.models.map(m => m.name.replace("models/", ""));
+                    
+                    // סדר העדיפויות שלנו: מודלי Pro קודמים, ואז Flash
+                    const preferences = ["gemini-2.5-pro", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"];
+                    
+                    for (const pref of preferences) {
+                        if (textModels.includes(pref)) {
+                            activeModelName = pref;
+                            break;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn("Model auto-detect failed, falling back to default.", e);
+            }
+
+            document.getElementById('used-model').innerText = `🧠 ${activeModelName}`;
+            
+            // שלב 2: יצירת המחסנית הראשונית
             await fetchQuestionsBatch(true); 
         };
 
@@ -100,23 +132,25 @@
             if (isFetching) return;
             isFetching = true;
             
+            if (isInitial) {
+                document.getElementById('loading-text').innerText = `מייצר 3 שאלות עם ${activeModelName} (יקח כ-30 שניות)...`;
+            }
+            
             const apiKey = localStorage.getItem('gemini_api_key');
             const genAI = new GoogleGenerativeAI(apiKey);
             
-            // שימוש במודל התקין שלך, והכרחת הפלט להיות JSON תקני
             const model = genAI.getGenerativeModel({ 
-                model: "gemini-2.5-flash",
+                model: activeModelName,
                 generationConfig: { responseMimeType: "application/json" }
             });
 
-            // ביקשתי 3 שאלות כדי שהטעינה תהיה מהירה יותר
             const prompt = `אתה כותב שאלות פסיכומטרי ברמה של ציון 750-800.
             צור 3 שאלות שונות בנושא: ${currentCategory}.
             החזר אך ורק מערך (Array) של אובייקטים בפורמט הבא:
             [
-              {"question": "טקסט השאלה", "options": ["מסיח 1","מסיח 2","מסיח 3","מסיח 4"], "correct": 0, "explanation": "הסבר מפורט למה התשובה נכונה"},
-              {"question": "טקסט השאלה", "options": ["מסיח 1","מסיח 2","מסיח 3","מסיח 4"], "correct": 2, "explanation": "הסבר מפורט למה התשובה נכונה"},
-              {"question": "טקסט השאלה", "options": ["מסיח 1","מסיח 2","מסיח 3","מסיח 4"], "correct": 1, "explanation": "הסבר מפורט למה התשובה נכונה"}
+              {"question": "טקסט השאלה", "options": ["מסיח 1","מסיח 2","מסיח 3","מסיח 4"], "correct": 0, "explanation": "הסבר מפורט למה התשובה נכונה ולמה המסיחים שגויים"},
+              {"question": "טקסט השאלה", "options": ["מסיח 1","מסיח 2","מסיח 3","מסיח 4"], "correct": 2, "explanation": "הסבר מפורט למה התשובה נכונה ולמה המסיחים שגויים"},
+              {"question": "טקסט השאלה", "options": ["מסיח 1","מסיח 2","מסיח 3","מסיח 4"], "correct": 1, "explanation": "הסבר מפורט למה התשובה נכונה ולמה המסיחים שגויים"}
             ]`;
 
             try {
@@ -125,11 +159,10 @@
                 
                 const newQuestions = JSON.parse(text);
                 
-                // מוודאים שקיבלנו מערך תקין
                 if(Array.isArray(newQuestions)) {
                     questionsQueue.push(...newQuestions);
                 } else {
-                    questionsQueue.push(newQuestions); // במקרה שהחזיר אובייקט בודד
+                    questionsQueue.push(newQuestions);
                 }
                 
                 document.getElementById('queue-count').innerText = questionsQueue.length;
@@ -153,6 +186,7 @@
         window.showNextQuestion = () => {
             if (questionsQueue.length === 0) {
                 document.getElementById('question-card').classList.add('hidden');
+                document.getElementById('loading-text').innerText = "ממתין לשאלות שנטענות ברקע...";
                 document.getElementById('loading').classList.remove('hidden');
                 return; 
             }
@@ -160,7 +194,7 @@
             const data = questionsQueue.shift();
             document.getElementById('queue-count').innerText = questionsQueue.length;
 
-            // משיכת שאלות ברקע כשהמלאי יורד ל-2 שאלות או פחות
+            // הטענה שקטה ברקע כשהמלאי יורד ל-2 שאלות
             if (questionsQueue.length <= 2) {
                 fetchQuestionsBatch(false); 
             }
