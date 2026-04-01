@@ -18,7 +18,7 @@
     <div id="app" class="max-w-2xl mx-auto p-6">
         <header class="text-center mb-8">
             <h1 class="text-4xl font-black text-indigo-700">Psychomaster <span class="text-green-500">Pro</span></h1>
-            <p class="text-gray-500">תרגול ללא המתנה (מצב טעינה מראש)</p>
+            <p class="text-gray-500">תרגול ללא המתנה (מצב טעינה מראש - 2.5 Flash)</p>
         </header>
 
         <div id="setup-card" class="bg-white shadow-xl rounded-2xl p-8 border border-gray-100">
@@ -48,18 +48,18 @@
 
         <div id="loading" class="hidden text-center py-20">
             <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4 mx-auto"></div>
-            <p class="text-indigo-600 font-bold animate-pulse">מכין את חבילת השאלות הראשונה...</p>
+            <p class="text-indigo-600 font-bold animate-pulse">מכין את חבילת השאלות הראשונה (זה ייקח כמה שניות)...</p>
         </div>
 
         <div id="question-card" class="hidden bg-white shadow-2xl rounded-2xl p-8 border-t-4 border-indigo-500">
             <div class="flex justify-between items-center mb-4">
                 <div id="q-timer" class="text-left text-red-500 font-mono font-bold text-lg">00:00</div>
-                <div id="buffer-status" class="text-xs text-gray-400">שאלות במחסנית: <span id="queue-count">0</span></div>
+                <div id="buffer-status" class="text-xs text-gray-400">שאלות ממתינות: <span id="queue-count" class="font-bold text-indigo-600">0</span></div>
             </div>
             <div id="q-text" class="text-xl font-bold mb-8 leading-relaxed"></div>
             <div id="options" class="space-y-3"></div>
             <div id="feedback" class="hidden mt-6 p-4 rounded-lg"></div>
-            <button id="next-btn" onclick="showNextQuestion()" class="hidden mt-8 w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition">
+            <button id="next-btn" onclick="showNextQuestion()" class="hidden mt-8 w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition shadow-lg">
                 לשאלה הבאה (מיידי) ⮕
             </button>
         </div>
@@ -72,8 +72,8 @@
         let seconds = 0;
         let chartInstance = null;
         
-        let questionsQueue = []; // מחסנית השאלות
-        let isFetching = false;  // מגן מפני כפילות בקשות ברקע
+        let questionsQueue = []; 
+        let isFetching = false;  
         let currentCategory = "";
 
         document.addEventListener("DOMContentLoaded", () => {
@@ -82,7 +82,6 @@
             renderChart();
         });
 
-        // פונקציית התחלת הסשן
         window.startSession = async () => {
             const apiKey = document.getElementById('api-key').value.trim();
             if (!apiKey) return alert("אנא הכנס API Key");
@@ -94,34 +93,44 @@
             document.getElementById('setup-card').classList.add('hidden');
             document.getElementById('loading').classList.remove('hidden');
 
-            await fetchQuestionsBatch(true); // טעינה ראשונית
+            await fetchQuestionsBatch(true); 
         };
 
-        // פונקציה להבאת חבילת שאלות (5 בכל פעם)
         async function fetchQuestionsBatch(isInitial = false) {
             if (isFetching) return;
             isFetching = true;
             
             const apiKey = localStorage.getItem('gemini_api_key');
             const genAI = new GoogleGenerativeAI(apiKey);
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            
+            // שימוש במודל התקין שלך, והכרחת הפלט להיות JSON תקני
+            const model = genAI.getGenerativeModel({ 
+                model: "gemini-2.5-flash",
+                generationConfig: { responseMimeType: "application/json" }
+            });
 
+            // ביקשתי 3 שאלות כדי שהטעינה תהיה מהירה יותר
             const prompt = `אתה כותב שאלות פסיכומטרי ברמה של ציון 750-800.
-            צור 5 שאלות שונות בנושא: ${currentCategory}.
-            החזר אך ורק פורמט JSON של מערך (Array) של אובייקטים, ללא שום טקסט נוסף:
+            צור 3 שאלות שונות בנושא: ${currentCategory}.
+            החזר אך ורק מערך (Array) של אובייקטים בפורמט הבא:
             [
-              {"question": "טקסט", "options": ["1","2","3","4"], "correct": 0, "explanation": "הסבר"},
-              ...
+              {"question": "טקסט השאלה", "options": ["מסיח 1","מסיח 2","מסיח 3","מסיח 4"], "correct": 0, "explanation": "הסבר מפורט למה התשובה נכונה"},
+              {"question": "טקסט השאלה", "options": ["מסיח 1","מסיח 2","מסיח 3","מסיח 4"], "correct": 2, "explanation": "הסבר מפורט למה התשובה נכונה"},
+              {"question": "טקסט השאלה", "options": ["מסיח 1","מסיח 2","מסיח 3","מסיח 4"], "correct": 1, "explanation": "הסבר מפורט למה התשובה נכונה"}
             ]`;
 
             try {
                 const result = await model.generateContent(prompt);
-                let text = (await result.response).text().trim();
-                if (text.startsWith("```json")) text = text.replace(/```json\n?/, "").replace(/```$/, "");
-                else if (text.startsWith("```")) text = text.replace(/```\n?/, "").replace(/```$/, "");
-
+                const text = (await result.response).text().trim();
+                
                 const newQuestions = JSON.parse(text);
-                questionsQueue.push(...newQuestions);
+                
+                // מוודאים שקיבלנו מערך תקין
+                if(Array.isArray(newQuestions)) {
+                    questionsQueue.push(...newQuestions);
+                } else {
+                    questionsQueue.push(newQuestions); // במקרה שהחזיר אובייקט בודד
+                }
                 
                 document.getElementById('queue-count').innerText = questionsQueue.length;
 
@@ -133,7 +142,7 @@
             } catch (error) {
                 console.error("Batch fetch failed:", error);
                 if (isInitial) {
-                    alert("שגיאה בטעינה הראשונית. נסה שוב.");
+                    alert("שגיאה ביצירת השאלות. ייתכן שהשרת עמוס. נסה שוב.");
                     location.reload();
                 }
             } finally {
@@ -145,18 +154,17 @@
             if (questionsQueue.length === 0) {
                 document.getElementById('question-card').classList.add('hidden');
                 document.getElementById('loading').classList.remove('hidden');
-                return; // יחכה שהטעינה תסתיים
+                return; 
             }
 
             const data = questionsQueue.shift();
             document.getElementById('queue-count').innerText = questionsQueue.length;
 
-            // בדיקה אם צריך להטעין עוד שאלות ברקע (אם נשארו פחות מ-3)
-            if (questionsQueue.length < 3) {
+            // משיכת שאלות ברקע כשהמלאי יורד ל-2 שאלות או פחות
+            if (questionsQueue.length <= 2) {
                 fetchQuestionsBatch(false); 
             }
 
-            // הצגת השאלה
             document.getElementById('q-text').innerHTML = data.question.replace(/\n/g, '<br>');
             document.getElementById('feedback').classList.add('hidden');
             document.getElementById('next-btn').classList.add('hidden');
