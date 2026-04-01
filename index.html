@@ -62,9 +62,15 @@
             <div id="q-text" class="text-xl font-bold mb-8 leading-relaxed"></div>
             <div id="options" class="space-y-3"></div>
             <div id="feedback" class="hidden mt-6 p-4 rounded-lg"></div>
-            <button id="next-btn" onclick="showNextQuestion()" class="hidden mt-8 w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition shadow-lg">
-                לשאלה הבאה (מיידי) ⮕
-            </button>
+            
+            <div id="action-buttons" class="hidden mt-8 flex gap-4">
+                <button onclick="showNextQuestion()" class="flex-1 bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition shadow-lg">
+                    לשאלה הבאה ⮕
+                </button>
+                <button onclick="finishSession()" class="flex-1 bg-gray-100 text-gray-700 font-bold py-3 rounded-lg hover:bg-gray-200 border border-gray-300 transition shadow-lg">
+                    סיום תרגול 🏁
+                </button>
+            </div>
         </div>
     </div>
 
@@ -79,7 +85,6 @@
         let isFetching = false;  
         let currentCategory = "";
         
-        // משתנה גלובלי שישמור את המודל שנבחר לאורך כל האימון
         let activeModelName = "gemini-1.5-flash"; 
 
         document.addEventListener("DOMContentLoaded", () => {
@@ -99,7 +104,6 @@
             document.getElementById('setup-card').classList.add('hidden');
             document.getElementById('loading').classList.remove('hidden');
 
-            // שלב 1: זיהוי אוטומטי של המודל הטוב ביותר (מתבצע פעם אחת בלבד!)
             try {
                 document.getElementById('loading-text').innerText = "בודק הרשאות ובוחר את המודל החכם ביותר...";
                 const modelsReq = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
@@ -107,8 +111,6 @@
                 
                 if (!modelsData.error) {
                     const textModels = modelsData.models.map(m => m.name.replace("models/", ""));
-                    
-                    // סדר העדיפויות שלנו: מודלי Pro קודמים, ואז Flash
                     const preferences = ["gemini-2.5-pro", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"];
                     
                     for (const pref of preferences) {
@@ -123,8 +125,6 @@
             }
 
             document.getElementById('used-model').innerText = `🧠 ${activeModelName}`;
-            
-            // שלב 2: יצירת המחסנית הראשונית
             await fetchQuestionsBatch(true); 
         };
 
@@ -194,14 +194,13 @@
             const data = questionsQueue.shift();
             document.getElementById('queue-count').innerText = questionsQueue.length;
 
-            // הטענה שקטה ברקע כשהמלאי יורד ל-2 שאלות
             if (questionsQueue.length <= 2) {
                 fetchQuestionsBatch(false); 
             }
 
             document.getElementById('q-text').innerHTML = data.question.replace(/\n/g, '<br>');
             document.getElementById('feedback').classList.add('hidden');
-            document.getElementById('next-btn').classList.add('hidden');
+            document.getElementById('action-buttons').classList.add('hidden'); // הסתרת הכפתורים
             
             const optionsDiv = document.getElementById('options');
             optionsDiv.innerHTML = '';
@@ -219,7 +218,7 @@
                     
                     const feedback = document.getElementById('feedback');
                     feedback.classList.remove('hidden');
-                    document.getElementById('next-btn').classList.remove('hidden');
+                    document.getElementById('action-buttons').classList.remove('hidden'); // חשיפת הכפתורים אחרי תשובה
 
                     if(isCorrect) {
                         btn.classList.add('bg-green-100', 'border-green-500');
@@ -237,6 +236,20 @@
             startTimer();
         };
 
+        // פונקציית הסיום החדשה
+        window.finishSession = () => {
+            clearInterval(timerInterval);
+            questionsQueue = []; // ניקוי המחסנית
+            isFetching = false;
+            
+            // מעבר חזרה למסך הראשי
+            document.getElementById('question-card').classList.add('hidden');
+            document.getElementById('setup-card').classList.remove('hidden');
+            
+            // עדכון הגרף עם התוצאות האחרונות
+            renderChart();
+        };
+
         function startTimer() {
             clearInterval(timerInterval);
             seconds = 0;
@@ -252,7 +265,6 @@
             let history = JSON.parse(localStorage.getItem('psycho_history') || '[]');
             history.push({ correct: isCorrect, timestamp: new Date().toISOString() });
             localStorage.setItem('psycho_history', JSON.stringify(history));
-            renderChart();
         }
 
         window.clearHistory = () => {
