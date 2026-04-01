@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Psychomaster AI - Pro Version</title>
+    <title>Psychomaster AI - Zero Latency</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;700&display=swap" rel="stylesheet">
@@ -17,51 +17,50 @@
 
     <div id="app" class="max-w-2xl mx-auto p-6">
         <header class="text-center mb-8">
-            <h1 class="text-4xl font-black text-indigo-700">Psychomaster <span class="text-indigo-400">AI</span></h1>
-            <p class="text-gray-500">מחולל שאלות פסיכומטרי אוטומטי (Auto-Fallback)</p>
+            <h1 class="text-4xl font-black text-indigo-700">Psychomaster <span class="text-green-500">Pro</span></h1>
+            <p class="text-gray-500">תרגול ללא המתנה (מצב טעינה מראש)</p>
         </header>
 
         <div id="setup-card" class="bg-white shadow-xl rounded-2xl p-8 border border-gray-100">
             <div id="stats-container" class="mb-8 hidden">
-                <h3 class="text-lg font-bold mb-2 text-center">התקדמות אחוזי הצלחה לאורך זמן</h3>
                 <canvas id="progressChart" height="100"></canvas>
                 <div class="text-center mt-2 text-sm text-gray-500">
-                    סה"כ שאלות שנענו: <span id="total-answered" class="font-bold">0</span> | 
+                    סה"כ שאלות: <span id="total-answered" class="font-bold">0</span> | 
                     <button onclick="clearHistory()" class="text-red-500 hover:underline">איפוס נתונים</button>
                 </div>
             </div>
 
-            <h2 class="text-xl font-bold mb-4 border-t pt-4">הגדרת תרגול חדש</h2>
+            <h2 class="text-xl font-bold mb-4 border-t pt-4">הגדרת תרגול</h2>
             <div class="space-y-4">
-                <input type="password" id="api-key" placeholder="הכנס API Key של Google AI" 
+                <input type="password" id="api-key" placeholder="הכנס API Key" 
                        class="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
                 <select id="category" class="w-full p-3 border rounded-lg bg-white">
                     <option value="חשיבה מילולית (אנלוגיות והסקה לוגית)">חשיבה מילולית</option>
                     <option value="חשיבה כמותית (אלגברה, גיאומטריה והספק)">חשיבה כמותית</option>
                     <option value="אנגלית (Sentence Completion and Restatements)">אנגלית</option>
                 </select>
-                <button onclick="generateNewQuestion()" id="start-btn" 
+                <button onclick="startSession()" id="start-btn" 
                         class="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl hover:bg-indigo-700 transition">
-                    ייצר שאלה חדשה (AI)
+                    התחל תרגול מיידי
                 </button>
             </div>
         </div>
 
         <div id="loading" class="hidden text-center py-20">
             <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4 mx-auto"></div>
-            <p id="loading-text" class="text-indigo-600 font-bold animate-pulse">מתחבר לשרתי גוגל ובודק מודלים זמינים...</p>
+            <p class="text-indigo-600 font-bold animate-pulse">מכין את חבילת השאלות הראשונה...</p>
         </div>
 
         <div id="question-card" class="hidden bg-white shadow-2xl rounded-2xl p-8 border-t-4 border-indigo-500">
             <div class="flex justify-between items-center mb-4">
                 <div id="q-timer" class="text-left text-red-500 font-mono font-bold text-lg">00:00</div>
-                <div id="used-model" class="text-xs bg-indigo-100 text-indigo-800 px-2 py-1 rounded font-bold"></div>
+                <div id="buffer-status" class="text-xs text-gray-400">שאלות במחסנית: <span id="queue-count">0</span></div>
             </div>
             <div id="q-text" class="text-xl font-bold mb-8 leading-relaxed"></div>
             <div id="options" class="space-y-3"></div>
             <div id="feedback" class="hidden mt-6 p-4 rounded-lg"></div>
-            <button onclick="location.reload()" class="mt-8 w-full bg-gray-100 text-indigo-600 font-bold py-3 rounded-lg hover:bg-gray-200 transition">
-                חזור למסך הראשי
+            <button id="next-btn" onclick="showNextQuestion()" class="hidden mt-8 w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 transition">
+                לשאלה הבאה (מיידי) ⮕
             </button>
         </div>
     </div>
@@ -72,6 +71,10 @@
         let timerInterval;
         let seconds = 0;
         let chartInstance = null;
+        
+        let questionsQueue = []; // מחסנית השאלות
+        let isFetching = false;  // מגן מפני כפילות בקשות ברקע
+        let currentCategory = "";
 
         document.addEventListener("DOMContentLoaded", () => {
             const savedKey = localStorage.getItem('gemini_api_key');
@@ -79,103 +82,84 @@
             renderChart();
         });
 
-        window.generateNewQuestion = async () => {
+        // פונקציית התחלת הסשן
+        window.startSession = async () => {
             const apiKey = document.getElementById('api-key').value.trim();
             if (!apiKey) return alert("אנא הכנס API Key");
-            
             localStorage.setItem('gemini_api_key', apiKey);
-            const category = document.getElementById('category').value;
+            
+            currentCategory = document.getElementById('category').value;
+            questionsQueue = [];
             
             document.getElementById('setup-card').classList.add('hidden');
             document.getElementById('loading').classList.remove('hidden');
 
-            try {
-                document.getElementById('loading-text').innerText = "מוצא את המודלים העדכניים ביותר שזמינים לך...";
-                
-                const modelsReq = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-                const modelsData = await modelsReq.json();
-                
-                if (modelsData.error) {
-                    throw new Error(modelsData.error.message);
-                }
-
-                // סינון מודלים שיודעים לייצר טקסט
-                const textModels = modelsData.models
-                    .filter(m => m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent"))
-                    .map(m => m.name.replace("models/", ""));
-
-                if (textModels.length === 0) {
-                    throw new Error("לא נמצאו מודלים זמינים למפתח זה.");
-                }
-
-                // העדפות מודלים מעודכנות - מהחדש והחזק ביותר לישן
-                const modernPreferences = [
-                    "gemini-3.0-pro", "gemini-3.0-flash", 
-                    "gemini-2.5-pro", "gemini-2.5-flash", 
-                    "gemini-pro", "gemini-1.5-pro", "gemini-1.5-flash"
-                ];
-
-                // מסדרים את המודלים שגוגל החזירה לנו לפי סדר העדיפויות שלנו
-                let orderedModelsToTry = [];
-                for (const pref of modernPreferences) {
-                    if (textModels.includes(pref)) orderedModelsToTry.push(pref);
-                }
-                // מוסיפים את שאר המודלים שזמינים למקרה שההעדפות שלנו נכשלו
-                textModels.forEach(m => {
-                    if (!orderedModelsToTry.includes(m)) orderedModelsToTry.push(m);
-                });
-
-                const genAI = new GoogleGenerativeAI(apiKey);
-                let successfulResponse = null;
-                let finalModelUsed = "";
-
-                // מנגנון הגיבוי: מנסים מודל אחר מודל עד שמצליחים!
-                for (const modelName of orderedModelsToTry) {
-                    try {
-                        document.getElementById('loading-text').innerText = `מנסה לייצר שאלה עם מודל ${modelName}...`;
-                        const model = genAI.getGenerativeModel({ model: modelName });
-                        
-                        const prompt = `אתה כותב שאלות פסיכומטרי ברמה של ציון 750-800 עבור המרכז הארצי לבחינות ולהערכה.
-                        צור שאלה אחת בנושא: ${category}.
-                        השאלה חייבת להיות קשה, עם מסיחים מבלבלים, והסבר לוגי מעמיק למה התשובה הנכונה היא הנכונה ולמה המסיחים שגויים.
-                        החזר אך ורק פורמט JSON תקין כזה ללא שום טקסט נוסף וללא פורמט Markdown:
-                        {"question": "טקסט השאלה", "options": ["1","2","3","4"], "correct": 0, "explanation": "הסבר"}`;
-
-                        const result = await model.generateContent(prompt);
-                        successfulResponse = await result.response;
-                        finalModelUsed = modelName;
-                        break; // הצלחנו! יוצאים מהלולאה
-                    } catch (e) {
-                        console.warn(`Model ${modelName} failed or deprecated. Trying next...`, e);
-                        // ממשיכים למודל הבא בלולאה
-                    }
-                }
-
-                if (!successfulResponse) {
-                    throw new Error("כל המודלים שניסינו נכשלו או חסומים על ידי גוגל.");
-                }
-
-                let responseText = successfulResponse.text().trim();
-                
-                // ניקוי תגיות Markdown במקרה שהמודל מחזיר אותן
-                if (responseText.startsWith("```json")) responseText = responseText.replace(/```json\n?/, "").replace(/```$/, "");
-                else if (responseText.startsWith("```")) responseText = responseText.replace(/```\n?/, "").replace(/```$/, "");
-
-                const data = JSON.parse(responseText);
-                
-                document.getElementById('used-model').innerText = `Powered by: ${finalModelUsed}`;
-                displayQuestion(data);
-                
-            } catch (error) {
-                alert("שגיאה סופית: " + error.message);
-                location.reload();
-            }
+            await fetchQuestionsBatch(true); // טעינה ראשונית
         };
 
-        function displayQuestion(data) {
-            document.getElementById('loading').classList.add('hidden');
-            document.getElementById('question-card').classList.remove('hidden');
+        // פונקציה להבאת חבילת שאלות (5 בכל פעם)
+        async function fetchQuestionsBatch(isInitial = false) {
+            if (isFetching) return;
+            isFetching = true;
+            
+            const apiKey = localStorage.getItem('gemini_api_key');
+            const genAI = new GoogleGenerativeAI(apiKey);
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+            const prompt = `אתה כותב שאלות פסיכומטרי ברמה של ציון 750-800.
+            צור 5 שאלות שונות בנושא: ${currentCategory}.
+            החזר אך ורק פורמט JSON של מערך (Array) של אובייקטים, ללא שום טקסט נוסף:
+            [
+              {"question": "טקסט", "options": ["1","2","3","4"], "correct": 0, "explanation": "הסבר"},
+              ...
+            ]`;
+
+            try {
+                const result = await model.generateContent(prompt);
+                let text = (await result.response).text().trim();
+                if (text.startsWith("```json")) text = text.replace(/```json\n?/, "").replace(/```$/, "");
+                else if (text.startsWith("```")) text = text.replace(/```\n?/, "").replace(/```$/, "");
+
+                const newQuestions = JSON.parse(text);
+                questionsQueue.push(...newQuestions);
+                
+                document.getElementById('queue-count').innerText = questionsQueue.length;
+
+                if (isInitial) {
+                    document.getElementById('loading').classList.add('hidden');
+                    document.getElementById('question-card').classList.remove('hidden');
+                    showNextQuestion();
+                }
+            } catch (error) {
+                console.error("Batch fetch failed:", error);
+                if (isInitial) {
+                    alert("שגיאה בטעינה הראשונית. נסה שוב.");
+                    location.reload();
+                }
+            } finally {
+                isFetching = false;
+            }
+        }
+
+        window.showNextQuestion = () => {
+            if (questionsQueue.length === 0) {
+                document.getElementById('question-card').classList.add('hidden');
+                document.getElementById('loading').classList.remove('hidden');
+                return; // יחכה שהטעינה תסתיים
+            }
+
+            const data = questionsQueue.shift();
+            document.getElementById('queue-count').innerText = questionsQueue.length;
+
+            // בדיקה אם צריך להטעין עוד שאלות ברקע (אם נשארו פחות מ-3)
+            if (questionsQueue.length < 3) {
+                fetchQuestionsBatch(false); 
+            }
+
+            // הצגת השאלה
             document.getElementById('q-text').innerHTML = data.question.replace(/\n/g, '<br>');
+            document.getElementById('feedback').classList.add('hidden');
+            document.getElementById('next-btn').classList.add('hidden');
             
             const optionsDiv = document.getElementById('options');
             optionsDiv.innerHTML = '';
@@ -193,6 +177,8 @@
                     
                     const feedback = document.getElementById('feedback');
                     feedback.classList.remove('hidden');
+                    document.getElementById('next-btn').classList.remove('hidden');
+
                     if(isCorrect) {
                         btn.classList.add('bg-green-100', 'border-green-500');
                         feedback.className = "mt-6 p-4 rounded-lg bg-green-50 text-green-800 font-bold border border-green-200";
@@ -207,9 +193,10 @@
                 optionsDiv.appendChild(btn);
             });
             startTimer();
-        }
+        };
 
         function startTimer() {
+            clearInterval(timerInterval);
             seconds = 0;
             timerInterval = setInterval(() => {
                 seconds++;
@@ -223,6 +210,7 @@
             let history = JSON.parse(localStorage.getItem('psycho_history') || '[]');
             history.push({ correct: isCorrect, timestamp: new Date().toISOString() });
             localStorage.setItem('psycho_history', JSON.stringify(history));
+            renderChart();
         }
 
         window.clearHistory = () => {
@@ -234,33 +222,28 @@
 
         function renderChart() {
             let history = JSON.parse(localStorage.getItem('psycho_history') || '[]');
-            if (history.length === 0) return document.getElementById('stats-container').classList.add('hidden');
-
+            if (history.length === 0) return;
             document.getElementById('stats-container').classList.remove('hidden');
             document.getElementById('total-answered').innerText = history.length;
-
             let cumulativeRates = [];
             let correctCount = 0;
             history.forEach((attempt, index) => {
                 if (attempt.correct) correctCount++;
                 cumulativeRates.push(Math.round((correctCount / (index + 1)) * 100));
             });
-
-            const labels = history.map((_, i) => `שאלה ${i + 1}`);
             const ctx = document.getElementById('progressChart').getContext('2d');
             if (chartInstance) chartInstance.destroy();
-
             chartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    labels: labels,
+                    labels: history.map((_, i) => i + 1),
                     datasets: [{
-                        label: 'אחוז הצלחה', data: cumulativeRates,
+                        label: 'הצלחה %', data: cumulativeRates,
                         borderColor: '#4f46e5', backgroundColor: 'rgba(79, 70, 229, 0.1)',
-                        borderWidth: 3, tension: 0.3, fill: true, pointRadius: 4
+                        fill: true, tension: 0.3
                     }]
                 },
-                options: { responsive: true, scales: { y: { beginAtZero: true, max: 100 } } }
+                options: { scales: { y: { beginAtZero: true, max: 100 } } }
             });
         }
     </script>
