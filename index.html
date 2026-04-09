@@ -175,7 +175,7 @@
             } catch (error) {
                 console.error("Batch fetch failed:", error);
                 if (isInitial) {
-                    alert("שגיאה ביצירת השאלות. ייתכן שהשרת עמוס. נסה שוב.");
+                    alert("Error : " + error.message);
                     location.reload();
                 }
             } finally {
