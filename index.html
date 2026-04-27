@@ -11,7 +11,16 @@
         body { font-family: 'Assistant', sans-serif; transition: all 0.3s; }
         .loader { border-top-color: #4f46e5; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .print-friendly { page-break-inside: avoid; }
+        
+        /* הגדרות מיוחדות להדפסה ויצירת PDF */
+        @media print {
+            body { background-color: white !important; color: black; }
+            #setup-card, #question-card, header, button { display: none !important; }
+            #answer-sheet-card { display: block !important; box-shadow: none !important; border: none !important; padding: 0 !important; width: 100%; max-width: 100%; margin: 0; }
+            .print-friendly { page-break-inside: avoid; border: 1px solid #ccc !important; margin-bottom: 20px; box-shadow: none !important; }
+            .bg-green-50, .bg-red-50, .bg-gray-100 { background-color: transparent !important; }
+            h2 { color: black !important; }
+        }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen text-gray-800">
@@ -67,7 +76,7 @@
         <div id="question-card" class="hidden bg-white shadow-2xl rounded-2xl p-8 border-t-4 border-indigo-500">
             <div class="flex justify-between items-center mb-6 bg-gray-50 p-3 rounded-lg">
                 <div id="sim-status" class="hidden font-bold text-indigo-800 text-sm">
-                    פרק <span id="current-chapter-display">1</span> מתוך 6 | שאלה <span id="question-in-chapter">1</span> מתוך <span id="total-in-chapter">5</span>
+                    פרק <span id="current-chapter-display">1</span> מתוך 6 | שאלה <span id="question-in-chapter">1</span> מתוך <span id="total-in-chapter">20</span>
                 </div>
                 <div id="q-timer" class="text-left text-red-500 font-mono font-bold text-lg ml-auto">00:00</div>
             </div>
@@ -91,11 +100,15 @@
             <h2 class="text-3xl font-black text-center text-green-600 mb-2">דף תשובות וסיכום ביצועים</h2>
             <p class="text-center text-gray-500 mb-8">סיכום הסימולציה שלך. מומלץ לעבור על ההסברים של השאלות בהן טעית.</p>
             
-            <div class="flex justify-center mb-8">
-                <div class="bg-gray-100 rounded-xl p-6 text-center w-64 shadow-inner">
+            <div class="flex justify-center gap-4 mb-8">
+                <div class="bg-gray-100 rounded-xl p-6 text-center w-48 shadow-inner">
                     <div class="text-sm text-gray-500 font-bold">ציון גלם</div>
-                    <div id="raw-score" class="text-5xl font-black text-indigo-700 mt-2">0/0</div>
+                    <div id="raw-score" class="text-4xl font-black text-indigo-700 mt-2">0/0</div>
                 </div>
+                <button onclick="window.print()" class="bg-blue-600 text-white font-bold rounded-xl p-6 hover:bg-blue-700 transition shadow-lg w-48 flex flex-col items-center justify-center">
+                    <span class="text-3xl mb-2">🖨️</span>
+                    <span>שמור כ-PDF / הדפס</span>
+                </button>
             </div>
 
             <div id="answers-container" class="space-y-6">
@@ -116,7 +129,7 @@
         
         let questionsQueue = []; 
         let isFetching = false;  
-        let activeModelName = "gemini-2.5-flash"; 
+        let activeModelName = "gemini-2.5-pro"; 
 
         // משתני סימולציה מלאה
         let isSimulationMode = false;
@@ -131,11 +144,11 @@
         let currentSimChapterIndex = 0;
         let currentQuestionInChapter = 0;
         
-        // כאן אפשר לשנות ל-20 שאלות לפרק אם יש לך חשבון API בתשלום
+        // עותקן ל-20 שאלות לפי בקשתך
         const QUESTIONS_PER_CHAPTER = 20; 
         
         let currentCategory = "";
-        let sessionAnswersData = []; // שומר את כל המידע לדף התשובות
+        let sessionAnswersData = []; 
 
         document.addEventListener("DOMContentLoaded", () => {
             const savedKey = localStorage.getItem('gemini_api_key');
@@ -181,7 +194,6 @@
                 generationConfig: { responseMimeType: "application/json" }
             });
 
-            // מייצרים 3 שאלות בכל בקשה כדי לשמור על מהירות ויציבות של ה-API
             const prompt = `אתה כותב שאלות פסיכומטרי ברמה של ציון 750-800.
             צור 3 שאלות שונות בנושא: ${currentCategory}.
             החזר אך ורק מערך (Array) של אובייקטים בפורמט הבא:
@@ -194,7 +206,6 @@
                 const text = (await result.response).text().trim();
                 const newQuestions = JSON.parse(text);
                 
-                // הוספת השיוך לפרק הנוכחי לכל שאלה
                 const processedQuestions = (Array.isArray(newQuestions) ? newQuestions : [newQuestions]).map(q => ({
                     ...q,
                     chapterName: currentCategory,
@@ -220,17 +231,15 @@
         }
 
         window.showNextQuestion = () => {
-            // טיפול במעבר פרקים בסימולציה
             if (isSimulationMode && currentQuestionInChapter >= QUESTIONS_PER_CHAPTER) {
                 currentSimChapterIndex++;
                 if (currentSimChapterIndex >= simulationChapters.length) {
-                    finishSession(); // סיום המבחן כולו
+                    finishSession(); 
                     return;
                 }
-                // התחלת פרק חדש
                 currentQuestionInChapter = 0;
                 currentCategory = simulationChapters[currentSimChapterIndex];
-                questionsQueue = []; // מנקים את השאלות של הפרק הקודם
+                questionsQueue = []; 
                 
                 document.getElementById('question-card').classList.add('hidden');
                 document.getElementById('loading').classList.remove('hidden');
@@ -255,12 +264,10 @@
                 document.getElementById('question-in-chapter').innerText = currentQuestionInChapter;
             }
 
-            // טעינה ברקע אם חסר
             if (questionsQueue.length <= 1 && (!isSimulationMode || currentQuestionInChapter + questionsQueue.length < QUESTIONS_PER_CHAPTER)) {
                 fetchQuestionsBatch(false); 
             }
 
-            // הצגת השאלה
             document.getElementById('chapter-title').innerText = isSimulationMode ? `נושא: ${data.chapterName}` : "";
             document.getElementById('q-text').innerHTML = data.question.replace(/\n/g, '<br>');
             document.getElementById('feedback').classList.add('hidden');
@@ -279,7 +286,6 @@
                     
                     const isCorrect = (i === data.correct);
                     
-                    // שמירת המידע לדף התשובות
                     sessionAnswersData.push({
                         questionData: data,
                         userAnswerIndex: i,
@@ -304,7 +310,6 @@
                         feedback.innerHTML = "❌ טעות.";
                     }
                     
-                    // במצב סימולציה לא מציגים את ההסבר מיד כדי לדמות מבחן אמיתי, אלא רק בדף התשובות
                     if (!isSimulationMode) {
                          feedback.innerHTML += `<br><span class='font-normal mt-2 block'>${data.explanation}</span>`;
                     } else {
@@ -320,7 +325,6 @@
             clearInterval(timerInterval);
             document.getElementById('question-card').classList.add('hidden');
             
-            // יצירת דף התשובות
             renderAnswerSheet();
             document.getElementById('answer-sheet-card').classList.remove('hidden');
             
@@ -343,11 +347,10 @@
                 
                 const q = item.questionData;
                 const statusColor = item.isCorrect ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50';
-                const statusIcon = item.isCorrect ? '✅' : '❌';
                 
                 let html = `
                 <div class="border-2 ${statusColor} rounded-xl p-6 print-friendly relative">
-                    <div class="absolute top-4 left-4 text-gray-400 text-sm">${item.timeTaken} שניות</div>
+                    <div class="absolute top-4 left-4 text-gray-400 text-sm" style="direction: ltr;">${item.timeTaken} sec</div>
                     <div class="text-sm text-gray-500 font-bold mb-2">שאלה ${index + 1} ${isSimulationMode ? `(פרק ${q.chapterIndex + 1} - ${q.chapterName.split(' ')[0]})` : ''}</div>
                     <div class="font-bold text-lg mb-4">${q.question.replace(/\n/g, '<br>')}</div>
                     
@@ -357,9 +360,9 @@
                 q.options.forEach((opt, i) => {
                     let optClass = "p-3 border rounded-lg text-sm ";
                     if (i === q.correct) {
-                        optClass += "bg-green-200 border-green-600 font-bold"; // התשובה הנכונה
+                        optClass += "bg-green-200 border-green-600 font-bold"; 
                     } else if (i === item.userAnswerIndex && !item.isCorrect) {
-                        optClass += "bg-red-200 border-red-600 font-bold line-through"; // מה שהמשתמש סימן וטעה
+                        optClass += "bg-red-200 border-red-600 font-bold line-through"; 
                     } else {
                         optClass += "bg-white border-gray-200 text-gray-500"; 
                     }
